@@ -98,11 +98,12 @@ func NewJSONHandler(w io.Writer, opts *HandlerOptions) *JSONHandler {
 	if opts == nil {
 		opts = &HandlerOptions{}
 	}
-	handler := &JSONHandler{
-		opts: *opts,
-	}
 	innerOpts := opts.newInnerHandlerOptions()
-	handler.inner = slog.NewJSONHandler(w, innerOpts)
+	innerHandler := slog.NewJSONHandler(w, innerOpts)
+	handler := &JSONHandler{
+		opts:  *opts,
+		inner: innerHandler,
+	}
 	return handler
 }
 
@@ -163,11 +164,12 @@ func NewTextHandler(w io.Writer, opts *HandlerOptions) *TextHandler {
 	if opts == nil {
 		opts = &HandlerOptions{}
 	}
-	handler := &TextHandler{
-		opts: *opts,
-	}
 	innerOpts := opts.newInnerHandlerOptions()
-	handler.inner = slog.NewTextHandler(w, innerOpts)
+	innerHandler := slog.NewTextHandler(w, innerOpts)
+	handler := &TextHandler{
+		opts:  *opts,
+		inner: innerHandler,
+	}
 	return handler
 }
 

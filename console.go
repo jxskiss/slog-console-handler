@@ -53,9 +53,10 @@ func NewConsoleHandler(w io.Writer, opts *HandlerOptions) *ConsoleHandler {
 	opts.timeFormatter = func(t time.Time) string {
 		return t.Format("2006/01/02 15:04:05.000")
 	}
-	cw := &consoleWriter{writer: w}
-	if !opts.NoColor {
-		cw.enableColor = terminal.CheckIsTerminal(w)
+	cw := &consoleWriter{
+		writer:      w,
+		enableColor: !opts.NoColor && terminal.CheckIsTerminal(w),
+		buf:         make([]byte, 1024), // 1KB buffer
 	}
 	inner := NewTextHandler(cw, opts)
 	return &ConsoleHandler{inner}
@@ -95,7 +96,7 @@ func (w *consoleWriter) formatNoColor() {
 	w.buf = addToBuf(w.buf, nil, w.record.Time)
 	w.buf = addToBuf(w.buf, nil, w.record.Level)
 	w.buf = addToBuf(w.buf, nil, w.record.Source)
-	w.buf = append(w.buf, ' ', '\t')
+	w.buf = append(w.buf, '\t')
 	w.buf = addToBuf(w.buf, nil, w.record.Message)
 	w.buf = append(w.buf, ' ', '\t')
 	w.buf = addToBuf(w.buf, nil, w.record.Errors)
@@ -116,7 +117,9 @@ func (w *consoleWriter) formatColorized() {
 	w.buf = addToBuf(w.buf, nil, w.record.Time)
 	w.buf = appendWithColor(w.buf, w.record.Level, color)
 	w.buf = addToBuf(w.buf, nil, w.record.Source)
+	w.buf = append(w.buf, '\t')
 	w.buf = appendWithColor(w.buf, w.record.Message, color)
+	w.buf = append(w.buf, ' ', '\t')
 	w.buf = appendWithColor(w.buf, w.record.Errors, terminal.Red)
 	w.buf = addToBuf(w.buf, nil, w.record.Others)
 }

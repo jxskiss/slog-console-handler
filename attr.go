@@ -60,13 +60,17 @@ type _Float interface {
 	~float32 | ~float64 | _SInt | _UInt
 }
 
+type attrSlice []Attr
+
 // pool of *[]Attr
-var attrSlicePool = func() *sync.Pool {
-	const initCap = 8
-	return &sync.Pool{
-		New: func() any {
-			slice := make([]Attr, 0, initCap)
-			return &slice
-		},
-	}
-}()
+var attrSlicePool = sync.Pool{
+	New: func() any {
+		as := make([]Attr, 0, 8)
+		return (*attrSlice)(&as)
+	},
+}
+
+func (as *attrSlice) Free() {
+	*as = (*as)[:0]
+	attrSlicePool.Put(as)
+}
