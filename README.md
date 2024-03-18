@@ -1,2 +1,2 @@
 # better-slog
-A better feature rich drop-in replacement for Golang package "slog".
+A feature rich drop-in replacement for Golang package "slog".
