@@ -5,7 +5,8 @@ import (
 	"io"
 )
 
-const NoColor Color = iota
+const NoColor Color = 0
+
 const (
 	Black Color = iota + 30
 	Red
