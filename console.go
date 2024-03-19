@@ -1,4 +1,4 @@
-package bslog
+package betterslog
 
 import (
 	"bytes"
@@ -51,11 +51,12 @@ func NewConsoleHandler(w io.Writer, opts *HandlerOptions) *ConsoleHandler {
 		opts = &HandlerOptions{}
 	}
 	opts.timeFormatter = func(t time.Time) string {
-		return t.Format("2006/01/02 15:04:05.000")
+		return t.Format("01/02 15:04:05.000")
 	}
-	cw := &consoleWriter{writer: w}
-	if !opts.NoColor {
-		cw.enableColor = terminal.CheckIsTerminal(w)
+	cw := &consoleWriter{
+		writer:      w,
+		enableColor: !opts.NoColor && terminal.CheckIsTerminal(w),
+		buf:         make([]byte, 1024), // 1KB buffer
 	}
 	inner := NewTextHandler(cw, opts)
 	return &ConsoleHandler{inner}
@@ -66,6 +67,7 @@ type consoleWriter struct {
 	enableColor bool
 
 	buf    []byte
+	keyBuf []byte
 	record bufRecord
 }
 
@@ -85,6 +87,7 @@ func (w *consoleWriter) Write(p []byte) (n int, err error) {
 
 func (w *consoleWriter) resetBuf() {
 	w.buf = w.buf[:0]
+	w.keyBuf = w.keyBuf[:0]
 	w.record = bufRecord{
 		Errors: w.record.Errors[:0],
 		Others: w.record.Others[:0],
@@ -95,30 +98,48 @@ func (w *consoleWriter) formatNoColor() {
 	w.buf = addToBuf(w.buf, nil, w.record.Time)
 	w.buf = addToBuf(w.buf, nil, w.record.Level)
 	w.buf = addToBuf(w.buf, nil, w.record.Source)
-	w.buf = append(w.buf, ' ', '\t')
+	w.buf = append(w.buf, '\t')
 	w.buf = addToBuf(w.buf, nil, w.record.Message)
 	w.buf = append(w.buf, ' ', '\t')
 	w.buf = addToBuf(w.buf, nil, w.record.Errors)
-	w.buf = addToBuf(w.buf, nil, w.record.Others)
+	for i := 0; i < len(w.record.Others); i += 2 {
+		k := w.record.Others[i]
+		v := w.record.Others[i+1]
+		w.buf = addToBuf(w.buf, k, v)
+	}
 }
 
 func (w *consoleWriter) formatColorized() {
-	var color terminal.Color
+	color := terminal.NoColor
 	level := unsafe.String(unsafe.SliceData(w.record.Level), len(w.record.Level))
-	switch level {
-	case "INFO":
+	switch {
+	case strings.HasPrefix(level, "INFO"):
 		color = terminal.Cyan
-	case "WARN":
+	case strings.HasPrefix(level, "WARN"):
 		color = terminal.Yellow
-	case "ERROR":
+	case strings.HasPrefix(level, "ERROR"):
 		color = terminal.Red
 	}
 	w.buf = addToBuf(w.buf, nil, w.record.Time)
-	w.buf = appendWithColor(w.buf, w.record.Level, color)
+	w.buf = addWithColor(w.buf, w.record.Level, color)
 	w.buf = addToBuf(w.buf, nil, w.record.Source)
-	w.buf = appendWithColor(w.buf, w.record.Message, color)
-	w.buf = appendWithColor(w.buf, w.record.Errors, terminal.Red)
-	w.buf = addToBuf(w.buf, nil, w.record.Others)
+	w.buf = append(w.buf, '\t')
+	w.buf = addWithColor(w.buf, w.record.Message, color)
+	w.buf = append(w.buf, ' ', '\t')
+	w.buf = addWithColor(w.buf, w.record.Errors, terminal.Red)
+	for i := 0; i < len(w.record.Others); i += 2 {
+		k := w.record.Others[i]
+		v := w.record.Others[i+1]
+		w.formatKey(k, terminal.Gray)
+		w.buf = append(w.buf, v...)
+	}
+}
+
+func (w *consoleWriter) formatKey(key []byte, color terminal.Color) {
+	w.keyBuf = w.keyBuf[:0]
+	w.keyBuf = append(w.keyBuf, key...)
+	w.keyBuf = append(w.keyBuf, '=')
+	w.buf = addWithColor(w.buf, w.keyBuf, color)
 }
 
 type bufRecord struct {
@@ -129,7 +150,7 @@ type bufRecord struct {
 	Source  []byte
 	Message []byte
 	Errors  []byte
-	Others  []byte
+	Others  [][]byte
 }
 
 func (r *bufRecord) parse(line []byte) {
@@ -231,7 +252,7 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 		strings.HasSuffix(k, ".error") {
 		r.Errors = addToBuf(r.Errors, key, value)
 	} else {
-		r.Others = addToBuf(r.Others, key, value)
+		r.Others = append(r.Others, key, value)
 	}
 }
 
@@ -250,7 +271,7 @@ func addToBuf[T string | []byte](b []byte, k, v T) []byte {
 	return b
 }
 
-func appendWithColor(b []byte, s []byte, color terminal.Color) []byte {
+func addWithColor(b []byte, s []byte, color terminal.Color) []byte {
 	if len(s) == 0 {
 		return b
 	}

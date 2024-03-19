@@ -1,6 +1,6 @@
 //go:build go1.22
 
-package bslog
+package betterslog
 
 import "log/slog"
 

@@ -1,4 +1,4 @@
-package bslog
+package betterslog
 
 const ErrorKey = "error"
 
