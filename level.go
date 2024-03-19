@@ -1,4 +1,4 @@
-package bslog
+package betterslog
 
 import (
 	"fmt"
