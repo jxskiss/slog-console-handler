@@ -101,7 +101,11 @@ func (w *consoleWriter) formatNoColor() {
 	w.buf = append(w.buf, '\t')
 	w.buf = addToBuf(w.buf, nil, w.record.Message)
 	w.buf = append(w.buf, ' ', '\t')
-	w.buf = addToBuf(w.buf, nil, w.record.Errors)
+	for i := 0; i < len(w.record.Errors); i += 2 {
+		k := w.record.Errors[i]
+		v := w.record.Errors[i+1]
+		w.buf = addToBuf(w.buf, k, v)
+	}
 	for i := 0; i < len(w.record.Others); i += 2 {
 		k := w.record.Others[i]
 		v := w.record.Others[i+1]
@@ -113,6 +117,8 @@ func (w *consoleWriter) formatColorized() {
 	color := terminal.NoColor
 	level := unsafe.String(unsafe.SliceData(w.record.Level), len(w.record.Level))
 	switch {
+	case strings.HasPrefix(level, "DEBUG"):
+		color = terminal.Magenta
 	case strings.HasPrefix(level, "INFO"):
 		color = terminal.Cyan
 	case strings.HasPrefix(level, "WARN"):
@@ -124,13 +130,20 @@ func (w *consoleWriter) formatColorized() {
 	w.buf = addWithColor(w.buf, w.record.Level, color)
 	w.buf = addToBuf(w.buf, nil, w.record.Source)
 	w.buf = append(w.buf, '\t')
-	w.buf = addWithColor(w.buf, w.record.Message, color)
+	w.buf = addToBuf(w.buf, nil, w.record.Message)
 	w.buf = append(w.buf, ' ', '\t')
-	w.buf = addWithColor(w.buf, w.record.Errors, terminal.Red)
+	for i := 0; i < len(w.record.Errors); i += 2 {
+		k := w.record.Errors[i]
+		v := w.record.Errors[i+1]
+		w.formatKey(k, color)
+		w.buf = append(w.buf, ' ')
+		w.buf = terminal.Red.Append(w.buf, v)
+	}
 	for i := 0; i < len(w.record.Others); i += 2 {
 		k := w.record.Others[i]
 		v := w.record.Others[i+1]
-		w.formatKey(k, terminal.Gray)
+		w.formatKey(k, color)
+		w.buf = append(w.buf, ' ')
 		w.buf = append(w.buf, v...)
 	}
 }
@@ -149,7 +162,7 @@ type bufRecord struct {
 	Level   []byte
 	Source  []byte
 	Message []byte
-	Errors  []byte
+	Errors  [][]byte
 	Others  [][]byte
 }
 
@@ -250,7 +263,7 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 	if k == "err" || k == "error" ||
 		strings.HasSuffix(k, ".err") ||
 		strings.HasSuffix(k, ".error") {
-		r.Errors = addToBuf(r.Errors, key, value)
+		r.Errors = append(r.Errors, key, value)
 	} else {
 		r.Others = append(r.Others, key, value)
 	}
