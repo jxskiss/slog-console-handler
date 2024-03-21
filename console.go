@@ -95,22 +95,20 @@ func (w *consoleWriter) resetBuf() {
 }
 
 func (w *consoleWriter) formatNoColor() {
-	w.buf = addToBuf(w.buf, nil, w.record.Time)
-	w.buf = addToBuf(w.buf, nil, w.record.Level)
-	w.buf = addToBuf(w.buf, nil, w.record.Source)
-	w.buf = append(w.buf, '\t')
-	w.buf = addToBuf(w.buf, nil, w.record.Message)
-	w.buf = append(w.buf, ' ', '\t')
+	buf := w.buf
+	buf = addToBuf(buf, nil, w.record.Time)
+	buf = addToBuf(buf, nil, w.record.Level)
+	buf = addToBuf(buf, nil, w.record.Source)
+	buf = append(buf, '\t')
+	buf = addToBuf(buf, nil, w.record.Message)
+	buf = append(buf, ' ', '\t')
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		k := w.record.Errors[i]
-		v := w.record.Errors[i+1]
-		w.buf = addToBuf(w.buf, k, v)
+		buf = addToBuf(buf, w.record.Errors[i], w.record.Errors[i+1])
 	}
 	for i := 0; i < len(w.record.Others); i += 2 {
-		k := w.record.Others[i]
-		v := w.record.Others[i+1]
-		w.buf = addToBuf(w.buf, k, v)
+		buf = addToBuf(buf, w.record.Others[i], w.record.Others[i+1])
 	}
+	w.buf = buf
 }
 
 func (w *consoleWriter) formatColorized() {
@@ -126,33 +124,28 @@ func (w *consoleWriter) formatColorized() {
 	case strings.HasPrefix(level, "ERROR"):
 		color = terminal.Red
 	}
-	w.buf = addToBuf(w.buf, nil, w.record.Time)
-	w.buf = addWithColor(w.buf, w.record.Level, color)
-	w.buf = addToBuf(w.buf, nil, w.record.Source)
-	w.buf = append(w.buf, '\t')
-	w.buf = addToBuf(w.buf, nil, w.record.Message)
-	w.buf = append(w.buf, ' ', '\t')
+	buf, keyBuf := w.buf, w.keyBuf
+	buf = addToBuf(buf, nil, w.record.Time)
+	buf = addWithColor(buf, w.record.Level, color)
+	buf = addToBuf(buf, nil, w.record.Source)
+	buf = append(buf, '\t')
+	buf = addToBuf(buf, nil, w.record.Message)
+	buf = append(buf, ' ', '\t')
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		k := w.record.Errors[i]
-		v := w.record.Errors[i+1]
-		w.formatKey(k, color)
-		w.buf = append(w.buf, ' ')
-		w.buf = terminal.Red.Append(w.buf, v)
+		keyBuf = keyBuf[:0]
+		keyBuf = append(keyBuf, w.record.Errors[i]...)
+		keyBuf = append(keyBuf, '=', ' ')
+		buf = addWithColor(buf, keyBuf, color)
+		buf = terminal.Red.Append(buf, w.record.Errors[i+1])
 	}
 	for i := 0; i < len(w.record.Others); i += 2 {
-		k := w.record.Others[i]
-		v := w.record.Others[i+1]
-		w.formatKey(k, color)
-		w.buf = append(w.buf, ' ')
-		w.buf = append(w.buf, v...)
+		keyBuf = keyBuf[:0]
+		keyBuf = append(keyBuf, w.record.Others[i]...)
+		keyBuf = append(keyBuf, '=', ' ')
+		buf = addWithColor(buf, keyBuf, color)
+		buf = append(buf, w.record.Others[i+1]...)
 	}
-}
-
-func (w *consoleWriter) formatKey(key []byte, color terminal.Color) {
-	w.keyBuf = w.keyBuf[:0]
-	w.keyBuf = append(w.keyBuf, key...)
-	w.keyBuf = append(w.keyBuf, '=')
-	w.buf = addWithColor(w.buf, w.keyBuf, color)
+	w.buf, w.keyBuf = buf, keyBuf
 }
 
 type bufRecord struct {
