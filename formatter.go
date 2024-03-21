@@ -3,6 +3,7 @@ package betterslog
 import (
 	"strconv"
 	"strings"
+	"time"
 )
 
 func SourceShortFormatter(source *Source) Attr {
@@ -48,4 +49,14 @@ func SourceGroupFormatter(source *Source) Attr {
 		as = append(as, Int("line", source.Line))
 	}
 	return Attr{Key: SourceKey, Value: GroupValue(as...)}
+}
+
+func TimeShortFormatter(t time.Time) string {
+	return t.Format("01/02 15:04:05.000")
+}
+
+func TimeLayoutFormatter(layout string) func(time.Time) string {
+	return func(t time.Time) string {
+		return t.Format(layout)
+	}
 }

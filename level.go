@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// TODO: LevelTrace, LevelNotice ???
-
 // Name for common levels.
 const (
 	LevelDebug = slog.LevelDebug
@@ -22,7 +20,11 @@ type (
 	Leveler  = slog.Leveler
 )
 
-func NewPerLoggerLevel(defaultLevel Leveler, perLoggerLevels []string) (Leveler, error) {
+// NewPerLoggerLeveler configures logging level by logger names.
+// The format is "loggerName.subLogger=level".
+// If a level is configured for a parent logger, but not configured for
+// a child logger, the child logger derives from its parent.
+func NewPerLoggerLeveler(defaultLevel Leveler, perLoggerLevels []string) (Leveler, error) {
 	levelFunc, err := buildPerLoggerLevelFunc(perLoggerLevels)
 	if err != nil {
 		return nil, err
@@ -43,7 +45,7 @@ func (pll *perLoggerLeveler) Level() Level {
 	return pll.defaultLevel.Level()
 }
 
-func (pll *perLoggerLeveler) getLevel(loggerName string) Level {
+func (pll *perLoggerLeveler) GetLoggerLevel(loggerName string) Level {
 	if loggerName != "" && pll.levelFunc != nil {
 		if level, ok := pll.levelFunc(loggerName); ok {
 			return level

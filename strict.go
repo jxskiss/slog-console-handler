@@ -24,10 +24,12 @@ type StrictLogger interface {
 	ToLogger() *Logger
 }
 
+// Strict returns the default logger as a StrictLogger.
 func Strict() StrictLogger {
 	return ToStrict(Default())
 }
 
+// ToStrict converts a Logger to a StrictLogger.
 func ToStrict(l *Logger) StrictLogger {
 	return &strictLogger{l.Handler()}
 }
@@ -68,7 +70,7 @@ func (l *strictLogger) Error(ctx context.Context, err error, msg string, attrs .
 	if err != nil {
 		asp := attrSlicePool.Get().(*attrSlice)
 		defer asp.Free()
-		*asp = append(*asp, ErrorAttr(err))
+		*asp = append(*asp, Err(err))
 		*asp = append(*asp, attrs...)
 		attrs = *asp
 	}
