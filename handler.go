@@ -18,17 +18,41 @@ const (
 
 type Handler = slog.Handler
 
+// HandlerOptions are options for a handler, it extends slog.HandlerOptions.
+// A zero HandlerOptions consists entirely of default values.
 type HandlerOptions struct {
 	AddSource   bool
 	Level       Leveler
 	ReplaceAttr func(groups []string, a Attr) Attr
 
+	// AddLogger makes the handler to add a logger name attribute
+	// to the output.
 	AddLogger bool
-	CtxPerceptor
-	SourceFormatter func(s *Source) Attr
-	NoColor         bool
 
-	timeFormatter func(t time.Time) string
+	// CtxPerceptor specifies functions to detect level and get
+	// additional attributes from context values.
+	CtxPerceptor
+
+	// ErrorFormatter sets a function to format errors.
+	ErrorFormatter func(key string, err error) Attr
+
+	// SourceFormatter sets a function to format the code location
+	// to use instead of the default.
+	// By default, SourceGroupFormatter is used.
+	SourceFormatter func(s *Source) Attr
+
+	// ConsoleOptions sets specific options for a ConsoleHandler.
+	ConsoleOptions
+}
+
+// ConsoleOptions sets options for a ConsoleHandler.
+type ConsoleOptions struct {
+	// NoColor force disable color in console output.
+	NoColor bool
+
+	// TimeFormatter sets a function to format time in console output.
+	// By default, TimeShortFormatter is used.
+	TimeFormatter func(t time.Time) string
 }
 
 func (opts *HandlerOptions) newInnerHandlerOptions() *slog.HandlerOptions {
@@ -43,8 +67,9 @@ func (opts *HandlerOptions) newInnerHandlerOptions() *slog.HandlerOptions {
 func (opts *HandlerOptions) getReplaceFunc() func(groups []string, a Attr) Attr {
 	if opts.ReplaceAttr != nil ||
 		opts.AddLogger ||
+		opts.ErrorFormatter != nil ||
 		opts.AddSource && opts.SourceFormatter != nil ||
-		opts.timeFormatter != nil {
+		opts.ConsoleOptions.TimeFormatter != nil {
 		return opts.replaceFunc
 	}
 	return nil
@@ -54,9 +79,9 @@ func (opts *HandlerOptions) replaceFunc(groups []string, a Attr) Attr {
 	if len(groups) == 0 {
 		switch a.Key {
 		case TimeKey:
-			if opts.timeFormatter != nil && a.Value.Kind() == KindTime {
+			if opts.ConsoleOptions.TimeFormatter != nil && a.Value.Kind() == KindTime {
 				if t, ok := a.Value.Any().(time.Time); ok {
-					return String(TimeKey, opts.timeFormatter(t))
+					return String(TimeKey, opts.ConsoleOptions.TimeFormatter(t))
 				}
 			}
 		case SourceKey:
@@ -75,6 +100,11 @@ func (opts *HandlerOptions) replaceFunc(groups []string, a Attr) Attr {
 					a = Attr{Value: GroupValue(String(MessageKey, msg), String("logger", loggerName))}
 				}
 			}
+		}
+	}
+	if opts.ErrorFormatter != nil && a.Value.Kind() == KindAny {
+		if werr, ok := a.Value.Any().(*errorValue); ok {
+			return opts.ErrorFormatter(a.Key, werr.error)
 		}
 	}
 	if opts.ReplaceAttr != nil {
@@ -115,7 +145,7 @@ func (h *JSONHandler) Enabled(ctx context.Context, level Level) bool {
 	}
 	if loggerName := h.getLoggerName(); loggerName != "" {
 		if pll, ok := h.opts.Level.(*perLoggerLeveler); ok {
-			return level >= pll.getLevel(loggerName)
+			return level >= pll.GetLoggerLevel(loggerName)
 		}
 	}
 	return h.inner.Enabled(ctx, level)
@@ -181,7 +211,7 @@ func (h *TextHandler) Enabled(ctx context.Context, level Level) bool {
 	}
 	if loggerName := h.getLoggerName(); loggerName != "" {
 		if pll, ok := h.opts.Level.(*perLoggerLeveler); ok {
-			return level >= pll.getLevel(loggerName)
+			return level >= pll.GetLoggerLevel(loggerName)
 		}
 	}
 	return h.inner.Enabled(ctx, level)

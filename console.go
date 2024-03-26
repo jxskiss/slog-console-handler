@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 	"unicode"
 	"unsafe"
 
@@ -15,6 +14,24 @@ import (
 
 type ConsoleHandler struct {
 	inner *TextHandler
+}
+
+func NewConsoleHandler(w io.Writer, opts *HandlerOptions) *ConsoleHandler {
+	if opts == nil {
+		opts = &HandlerOptions{}
+	}
+	if opts.ConsoleOptions.TimeFormatter == nil {
+		opts.ConsoleOptions.TimeFormatter = TimeShortFormatter
+	}
+	enableColor := !opts.ConsoleOptions.NoColor &&
+		terminal.CheckIsTerminal(w)
+	cw := &consoleWriter{
+		writer:      w,
+		enableColor: enableColor,
+		buf:         make([]byte, 1024), // 1KB buffer
+	}
+	inner := NewTextHandler(cw, opts)
+	return &ConsoleHandler{inner}
 }
 
 func (h *ConsoleHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -45,22 +62,6 @@ func (h *ConsoleHandler) cloneHandler() internalHandler {
 func (h *ConsoleHandler) getOptions() HandlerOptions { return h.inner.getOptions() }
 func (h *ConsoleHandler) getLoggerName() string      { return h.inner.getLoggerName() }
 func (h *ConsoleHandler) setLoggerName(name string)  { h.inner.setLoggerName(name) }
-
-func NewConsoleHandler(w io.Writer, opts *HandlerOptions) *ConsoleHandler {
-	if opts == nil {
-		opts = &HandlerOptions{}
-	}
-	opts.timeFormatter = func(t time.Time) string {
-		return t.Format("01/02 15:04:05.000")
-	}
-	cw := &consoleWriter{
-		writer:      w,
-		enableColor: !opts.NoColor && terminal.CheckIsTerminal(w),
-		buf:         make([]byte, 1024), // 1KB buffer
-	}
-	inner := NewTextHandler(cw, opts)
-	return &ConsoleHandler{inner}
-}
 
 type consoleWriter struct {
 	writer      io.Writer
