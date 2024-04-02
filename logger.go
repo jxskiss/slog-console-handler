@@ -27,6 +27,9 @@ func NewRecord(t time.Time, level Level, msg string, pc uintptr) Record {
 	return slog.NewRecord(t, level, msg, pc)
 }
 
+// Named adds a new path segment to the logger's name.
+// Segments are joined by periods.
+// By default, Loggers are unnamed.
 func Named(l *Logger, name string) *Logger {
 	if l == nil {
 		l = Default()

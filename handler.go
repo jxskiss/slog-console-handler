@@ -113,9 +113,18 @@ func (opts *HandlerOptions) replaceFunc(groups []string, a Attr) Attr {
 	return a
 }
 
+// CtxPerceptor specifies functions to detect level and
+// get additional attributes from context values.
 type CtxPerceptor struct {
+
+	// CheckLevel specifies a function to detect level from context.
+	// If the return value "change" is true, the return value "level"
+	// is used to determine whether a log level is enabled instead of
+	// the handler's default level.
 	CheckLevel func(ctx context.Context) (level Level, change bool)
-	CheckAttr  func(ctx context.Context) (attr Attr)
+
+	// CheckAttr specifies a function to get additional attributes from context.
+	CheckAttr func(ctx context.Context) (attr Attr)
 }
 
 type JSONHandler struct {

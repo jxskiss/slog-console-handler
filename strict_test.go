@@ -10,7 +10,10 @@ import (
 
 func TestStrictLogger(t *testing.T) {
 	var buf bytes.Buffer
-	SetDefault(New(NewTextHandler(&buf, &HandlerOptions{Level: LevelDebug})))
+	SetDefault(New(NewTextHandler(&buf, &HandlerOptions{
+		Level:     LevelDebug,
+		AddLogger: true,
+	})))
 
 	ctx := context.Background()
 	printLogs := func(l StrictLogger) {
@@ -80,6 +83,25 @@ func TestStrictLogger(t *testing.T) {
 			`level=WARN msg="Warn message" k0=v0 group1.k1=v1 group1.k2=234`,
 			`level=ERROR msg="Error message" k0=v0 group1.error="test error" group1.k1=v1 group1.k2=234`,
 			`level=ERROR msg="Log message" k0=v0 group1.k1=v1 group1.k2=234`,
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("not found but want %q in logger output", want)
+			}
+		}
+	})
+
+	t.Run("with logger name", func(t *testing.T) {
+		buf.Reset()
+		lg := Strict().Named("parent")
+		lg.Info(ctx, "from parent logger")
+		child := lg.Named("child")
+		child.Info(ctx, "from child logger")
+		got := buf.String()
+		t.Logf("got: %s", got)
+
+		for _, want := range []string{
+			`level=INFO msg="from parent logger" logger=parent`,
+			`level=INFO msg="from child logger" logger=parent.child`,
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("not found but want %q in logger output", want)

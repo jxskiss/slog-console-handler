@@ -8,6 +8,12 @@ import (
 // StrictLogger contains a limited set of methods from slog.Logger.
 // This forces adding context.Context and using Attr.
 type StrictLogger interface {
+
+	// Named adds a new path segment to the logger's name.
+	// Segments are joined by periods.
+	// By default, Loggers are unnamed.
+	Named(name string) StrictLogger
+
 	With(attrs ...Attr) StrictLogger
 	WithGroup(name string) StrictLogger
 
@@ -36,6 +42,18 @@ func ToStrict(l *Logger) StrictLogger {
 
 type strictLogger struct {
 	handler slog.Handler
+}
+
+func (l *strictLogger) Named(name string) StrictLogger {
+	switch impl := l.handler.(type) {
+	case internalHandler:
+		subName := getSubLoggerName(impl.getLoggerName(), name)
+		handler := impl.cloneHandler()
+		handler.setLoggerName(subName)
+		return &strictLogger{handler}
+	default:
+		return l
+	}
 }
 
 func (l *strictLogger) With(attrs ...Attr) StrictLogger {

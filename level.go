@@ -24,6 +24,8 @@ type (
 // The format is "loggerName.subLogger=level".
 // If a level is configured for a parent logger, but not configured for
 // a child logger, the child logger derives from its parent.
+//
+// Note that per-logger levels only work with handlers in this package.
 func NewPerLoggerLeveler(defaultLevel Leveler, perLoggerLevels []string) (Leveler, error) {
 	levelFunc, err := buildPerLoggerLevelFunc(perLoggerLevels)
 	if err != nil {
