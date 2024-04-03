@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"os"
 )
 
 var logLoggerLevel LevelVar
@@ -64,6 +65,13 @@ func Error(msg string, args ...any) {
 
 func ErrorContext(ctx context.Context, msg string, args ...any) {
 	doLog(Default().Handler(), ctx, LevelError, msg, args...)
+}
+
+// Fatal is equivalent to Error() followed by a call to os.Exit(1).
+func Fatal(msg string, args ...any) {
+	ctx := context.Background()
+	doLog(Default().Handler(), ctx, LevelError, msg, args...)
+	os.Exit(1)
 }
 
 func Log(ctx context.Context, level Level, msg string, args ...any) {
