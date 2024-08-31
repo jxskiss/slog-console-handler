@@ -1,83 +1,72 @@
-package betterslog
+package slogconsolehandler
 
 import (
-	"context"
-	"log"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
-var logLoggerLevel LevelVar
+var levelVar = &slog.LevelVar{}
 
-func SetDefault(l *Logger) {
-	addSource := false
-	switch impl := l.Handler().(type) {
-	case internalHandler:
-		addSource = impl.getOptions().AddSource
-	default:
-		addSource = log.Flags()&(log.Lshortfile|log.Llongfile) != 0
+func init() { levelVar.Set(slog.LevelDebug) }
+
+// Default is a default handler configured at debug level,
+// color is enabled, time and source are formatted in a short form.
+// The level can be changed on-the-fly by calling SetLevel.
+var Default = New(os.Stderr, &HandlerOptions{
+	AddSource: true,
+	Level:     levelVar,
+	ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		switch a.Key {
+		case slog.TimeKey:
+			if a.Value.Kind() == slog.KindTime {
+				if t, ok := a.Value.Any().(time.Time); ok {
+					return slog.String(slog.TimeKey, formatTimeShort(t))
+				}
+			}
+		case slog.SourceKey:
+			if a.Value.Kind() == slog.KindAny {
+				if src, ok := a.Value.Any().(*slog.Source); ok {
+					return slog.String(slog.SourceKey, formatSourceShort(src))
+				}
+			}
+		}
+		return a
+	},
+	DisableColor: false,
+})
+
+// SetLevel sets the Default handler's level to l.
+func SetLevel(l slog.Level) { levelVar.Set(l) }
+
+func formatTimeShort(t time.Time) string {
+	return t.Format("01/02 15:04:05.000")
+}
+
+func formatSourceShort(s *slog.Source) string {
+	// nb. To make sure we trim the path correctly on Windows too,
+	// we counter-intuitively need to use '/' and *not* os.PathSeparator here,
+	// because the path given originates from Go stdlib, specifically
+	// runtime.Caller() which (as of Mar/17) returns forward slashes even on
+	// Windows.
+	//
+	// See https://github.com/golang/go/issues/3335
+	// and https://github.com/golang/go/issues/18151
+	//
+	// for discussion on the issue on Go side.
+	//
+	// Find the last separator.
+	//
+	file := s.File
+	idx := strings.LastIndexByte(file, '/')
+	if idx > 0 {
+		idx = strings.LastIndexByte(file[:idx], '/')
 	}
-	slog.SetDefault(l)
-	if log.Flags() == 0 {
-		log.SetOutput(&handlerWriter{l.Handler(), &logLoggerLevel, addSource})
+	if idx >= 0 {
+		file = file[idx+1:]
 	}
-}
-
-func Default() *Logger {
-	return slog.Default()
-}
-
-func With(attrs ...any) *Logger {
-	return Default().With(attrs...)
-}
-
-func Debug(msg string, args ...any) {
-	ctx := context.Background()
-	doLog(Default().Handler(), ctx, LevelDebug, msg, args...)
-}
-
-func DebugContext(ctx context.Context, msg string, args ...any) {
-	doLog(Default().Handler(), ctx, LevelDebug, msg, args...)
-}
-
-func Info(msg string, args ...any) {
-	ctx := context.Background()
-	doLog(Default().Handler(), ctx, LevelInfo, msg, args...)
-}
-
-func InfoContext(ctx context.Context, msg string, args ...any) {
-	doLog(Default().Handler(), ctx, LevelInfo, msg, args...)
-}
-
-func Warn(msg string, args ...any) {
-	ctx := context.Background()
-	doLog(Default().Handler(), ctx, LevelWarn, msg, args...)
-}
-
-func WarnContext(ctx context.Context, msg string, args ...any) {
-	doLog(Default().Handler(), ctx, LevelWarn, msg, args...)
-}
-
-func Error(msg string, args ...any) {
-	ctx := context.Background()
-	doLog(Default().Handler(), ctx, LevelError, msg, args...)
-}
-
-func ErrorContext(ctx context.Context, msg string, args ...any) {
-	doLog(Default().Handler(), ctx, LevelError, msg, args...)
-}
-
-// Fatal is equivalent to Error() followed by a call to os.Exit(1).
-func Fatal(msg string, args ...any) {
-	ctx := context.Background()
-	doLog(Default().Handler(), ctx, LevelError, msg, args...)
-	os.Exit(1)
-}
-
-func Log(ctx context.Context, level Level, msg string, args ...any) {
-	doLog(Default().Handler(), ctx, level, msg, args...)
-}
-
-func LogAttrs(ctx context.Context, level Level, msg string, attrs ...Attr) {
-	doLogAttrs(Default().Handler(), ctx, level, msg, attrs...)
+	value := file + ":" + strconv.Itoa(s.Line)
+	return value
 }

@@ -1,71 +1,29 @@
-package betterslog
+package slogconsolehandler
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"unicode"
 	"unsafe"
 
-	"github.com/jxskiss/better-slog/internal/terminal"
+	"github.com/jxskiss/slog-console-handler/internal/terminal"
 )
 
-type ConsoleHandler struct {
-	inner *TextHandler
-}
+var (
+	byteNewline = []byte("\\n")
+	sourceKey   = []byte("source")
+)
 
-func NewConsoleHandler(w io.Writer, opts *HandlerOptions) *ConsoleHandler {
-	if opts == nil {
-		opts = &HandlerOptions{}
-	}
-	if opts.ConsoleOptions.TimeFormatter == nil {
-		opts.ConsoleOptions.TimeFormatter = TimeShortFormatter
-	}
-	enableColor := !opts.ConsoleOptions.NoColor &&
-		terminal.CheckIsTerminal(w)
-	cw := &consoleWriter{
-		writer:      w,
-		enableColor: enableColor,
-		buf:         make([]byte, 1024), // 1KB buffer
-	}
-	inner := NewTextHandler(cw, opts)
-	return &ConsoleHandler{inner}
+func checkIsTerminal(w io.Writer) bool {
+	return terminal.CheckIsTerminal(w)
 }
-
-func (h *ConsoleHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.inner.Enabled(ctx, level)
-}
-
-func (h *ConsoleHandler) Handle(ctx context.Context, record slog.Record) error {
-	return h.inner.Handle(ctx, record)
-}
-
-func (h *ConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &ConsoleHandler{
-		inner: h.inner.WithAttrs(attrs).(*TextHandler),
-	}
-}
-
-func (h *ConsoleHandler) WithGroup(name string) slog.Handler {
-	return &ConsoleHandler{
-		inner: h.inner.WithGroup(name).(*TextHandler),
-	}
-}
-
-func (h *ConsoleHandler) cloneHandler() internalHandler {
-	return &ConsoleHandler{
-		inner: h.inner.clone(),
-	}
-}
-func (h *ConsoleHandler) getOptions() HandlerOptions { return h.inner.getOptions() }
-func (h *ConsoleHandler) getLoggerName() string      { return h.inner.getLoggerName() }
-func (h *ConsoleHandler) setLoggerName(name string)  { h.inner.setLoggerName(name) }
 
 type consoleWriter struct {
-	writer      io.Writer
-	enableColor bool
+	writer io.Writer
+	color  bool
 
 	buf    []byte
 	keyBuf []byte
@@ -75,7 +33,11 @@ type consoleWriter struct {
 func (w *consoleWriter) Write(p []byte) (n int, err error) {
 	w.resetBuf()
 	w.record.parse(p)
-	if !w.enableColor {
+	if len(w.record.Source) > 0 {
+		w.record.Fields = append(w.record.Fields, sourceKey, w.record.Source)
+		w.record.Source = nil
+	}
+	if !w.color {
 		w.formatNoColor()
 	} else {
 		w.formatColorized()
@@ -91,7 +53,7 @@ func (w *consoleWriter) resetBuf() {
 	w.keyBuf = w.keyBuf[:0]
 	w.record = bufRecord{
 		Errors: w.record.Errors[:0],
-		Others: w.record.Others[:0],
+		Fields: w.record.Fields[:0],
 	}
 }
 
@@ -99,22 +61,29 @@ func (w *consoleWriter) formatNoColor() {
 	buf := w.buf
 	buf = addToBuf(buf, nil, w.record.Time)
 	buf = addToBuf(buf, nil, w.record.Level)
-	buf = addToBuf(buf, nil, w.record.Source)
-	buf = append(buf, '\t')
+	if len(w.record.Level) < 5 {
+		buf = append(buf, ' ')
+	}
 	buf = addToBuf(buf, nil, w.record.Message)
 	buf = append(buf, ' ', '\t')
 	for i := 0; i < len(w.record.Errors); i += 2 {
 		buf = addToBuf(buf, w.record.Errors[i], w.record.Errors[i+1])
 	}
-	for i := 0; i < len(w.record.Others); i += 2 {
-		buf = addToBuf(buf, w.record.Others[i], w.record.Others[i+1])
+	for i := 0; i < len(w.record.Fields); i += 2 {
+		buf = addToBuf(buf, w.record.Fields[i], w.record.Fields[i+1])
+	}
+	for i := 0; i < len(w.record.Stacktrace); i += 2 {
+		buf = append(buf, '\n', '\t')
+		buf = append(buf, w.record.Stacktrace[i]...)
+		buf = append(buf, '=', ' ')
+		buf = formatStacktrace(buf, w.record.Stacktrace[i+1])
 	}
 	w.buf = buf
 }
 
 func (w *consoleWriter) formatColorized() {
 	color := terminal.NoColor
-	level := unsafe.String(unsafe.SliceData(w.record.Level), len(w.record.Level))
+	level := b2s(w.record.Level)
 	switch {
 	case strings.HasPrefix(level, "DEBUG"):
 		color = terminal.Magenta
@@ -125,39 +94,49 @@ func (w *consoleWriter) formatColorized() {
 	case strings.HasPrefix(level, "ERROR"):
 		color = terminal.Red
 	}
-	buf, keyBuf := w.buf, w.keyBuf
+	buf, buf1 := w.buf, w.keyBuf
 	buf = addToBuf(buf, nil, w.record.Time)
 	buf = addWithColor(buf, w.record.Level, color)
-	buf = addToBuf(buf, nil, w.record.Source)
-	buf = append(buf, '\t')
+	if len(w.record.Level) < 5 {
+		buf = append(buf, ' ')
+	}
 	buf = addToBuf(buf, nil, w.record.Message)
 	buf = append(buf, ' ', '\t')
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		keyBuf = keyBuf[:0]
-		keyBuf = append(keyBuf, w.record.Errors[i]...)
-		keyBuf = append(keyBuf, '=', ' ')
-		buf = addWithColor(buf, keyBuf, color)
+		buf1 = buf1[:0]
+		buf1 = append(buf1, w.record.Errors[i]...)
+		buf1 = append(buf1, '=', ' ')
+		buf = addWithColor(buf, buf1, color)
 		buf = terminal.Red.Append(buf, w.record.Errors[i+1])
 	}
-	for i := 0; i < len(w.record.Others); i += 2 {
-		keyBuf = keyBuf[:0]
-		keyBuf = append(keyBuf, w.record.Others[i]...)
-		keyBuf = append(keyBuf, '=', ' ')
-		buf = addWithColor(buf, keyBuf, color)
-		buf = append(buf, w.record.Others[i+1]...)
+	for i := 0; i < len(w.record.Fields); i += 2 {
+		buf1 = buf1[:0]
+		buf1 = append(buf1, w.record.Fields[i]...)
+		buf1 = append(buf1, '=', ' ')
+		buf = addWithColor(buf, buf1, color)
+		buf = append(buf, w.record.Fields[i+1]...)
 	}
-	w.buf, w.keyBuf = buf, keyBuf
+	for i := 0; i < len(w.record.Stacktrace); i += 2 {
+		buf = append(buf, '\n', '\t')
+		buf1 = buf1[:0]
+		buf1 = append(buf1, w.record.Stacktrace[i]...)
+		buf1 = append(buf1, '=', ' ')
+		buf = addWithColor(buf, buf1, color)
+		buf = formatStacktrace(buf, w.record.Stacktrace[i+1])
+	}
+	w.buf, w.keyBuf = buf, buf1
 }
 
 type bufRecord struct {
 	line []byte
 
-	Time    []byte
-	Level   []byte
-	Source  []byte
-	Message []byte
-	Errors  [][]byte
-	Others  [][]byte
+	Time       []byte
+	Level      []byte
+	Source     []byte
+	Message    []byte
+	Stacktrace [][]byte
+	Errors     [][]byte
+	Fields     [][]byte
 }
 
 func (r *bufRecord) parse(line []byte) {
@@ -228,9 +207,9 @@ func (r *bufRecord) getValue() (value []byte) {
 }
 
 func (r *bufRecord) addKeyValue(key, value []byte) {
-	k := unsafe.String(unsafe.SliceData(key), len(key))
+	k := b2s(key)
 	switch k {
-	case TimeKey:
+	case slog.TimeKey:
 		if len(r.Time) == 0 {
 			if value[0] == '"' {
 				value = value[1 : len(value)-1]
@@ -238,28 +217,33 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 			r.Time = value
 			return
 		}
-	case LevelKey:
+	case slog.LevelKey:
 		if len(r.Level) == 0 {
 			r.Level = value
 			return
 		}
-	case SourceKey:
+	case slog.SourceKey:
 		if len(r.Source) == 0 {
 			r.Source = value
 			return
 		}
-	case MessageKey:
+	case slog.MessageKey:
 		if len(r.Message) == 0 {
+			if len(value) > 2 && value[0] == '"' {
+				value = value[1 : len(value)-1]
+			}
 			r.Message = value
 			return
 		}
 	}
-	if k == "err" || k == "error" ||
+	if (strings.Contains(k, "stack") || strings.Contains(k, "trace")) && bytes.Contains(value, byteNewline) {
+		r.Stacktrace = append(r.Stacktrace, key, value)
+	} else if k == "err" || k == "error" ||
 		strings.HasSuffix(k, ".err") ||
 		strings.HasSuffix(k, ".error") {
 		r.Errors = append(r.Errors, key, value)
 	} else {
-		r.Others = append(r.Others, key, value)
+		r.Fields = append(r.Fields, key, value)
 	}
 }
 
@@ -268,11 +252,11 @@ func addToBuf[T string | []byte](b []byte, k, v T) []byte {
 		return b
 	}
 	if len(b) > 0 && b[len(b)-1] != '\t' {
-		b = append(b, ' ')
+		b = append(b, ' ', ' ')
 	}
 	if len(k) > 0 {
 		b = append(b, k...)
-		b = append(b, '=')
+		b = append(b, '=', ' ')
 	}
 	b = append(b, v...)
 	return b
@@ -283,8 +267,30 @@ func addWithColor(b []byte, s []byte, color terminal.Color) []byte {
 		return b
 	}
 	if len(b) > 0 && b[len(b)-1] != '\t' {
-		b = append(b, ' ')
+		b = append(b, ' ', ' ')
 	}
 	b = color.Append(b, s)
 	return b
+}
+
+func formatStacktrace(b []byte, st []byte) []byte {
+	st = bytes.TrimSpace(st)
+	s, _ := strconv.Unquote(b2s(st))
+	b = append(b, '\n', '\t', '\t')
+	i, n := 0, len(s)
+	for j, x := range s {
+		if x != '\n' && j != n-1 {
+			continue
+		}
+		b = append(b, string([]rune(s)[i:j])...)
+		if j < n-1 {
+			b = append(b, '\n', '\t', '\t')
+		}
+		i = j + 1
+	}
+	return b
+}
+
+func b2s(b []byte) string {
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
