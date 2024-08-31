@@ -31,11 +31,11 @@ var Default = New(os.Stderr, &HandlerOptions{
 			}
 		case slog.SourceKey:
 			if a.Value.Kind() == slog.KindAny {
-				if s, ok := a.Value.Any().(*slog.Source); ok {
+				if s, ok := a.Value.Any().(*slog.Source); ok && s != nil {
 					if s.File == "" {
 						return slog.Attr{}
 					}
-					return slog.String(slog.SourceKey, FormatSourceShort(s))
+					return slog.String(slog.SourceKey, FormatSourceShort(*s))
 				}
 			}
 		}
@@ -53,7 +53,11 @@ func FormatTimeShort(t time.Time) string {
 }
 
 // FormatSourceShort formats source in a short format.
-func FormatSourceShort(s *slog.Source) string {
+func FormatSourceShort(s slog.Source) string {
+	if s.File == "" {
+		return ""
+	}
+
 	// nb. To make sure we trim the path correctly on Windows too,
 	// we counter-intuitively need to use '/' and *not* os.PathSeparator here,
 	// because the path given originates from Go stdlib, specifically
@@ -66,7 +70,6 @@ func FormatSourceShort(s *slog.Source) string {
 	// for discussion on the issue on Go side.
 	//
 	// Find the last separator.
-	//
 	file := s.File
 	idx := strings.LastIndexByte(file, '/')
 	if idx > 0 {
