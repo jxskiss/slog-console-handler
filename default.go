@@ -23,13 +23,19 @@ var Default = New(os.Stderr, &HandlerOptions{
 		case slog.TimeKey:
 			if a.Value.Kind() == slog.KindTime {
 				if t, ok := a.Value.Any().(time.Time); ok {
-					return slog.String(slog.TimeKey, formatTimeShort(t))
+					if t.IsZero() {
+						return slog.Attr{}
+					}
+					return slog.String(slog.TimeKey, FormatTimeShort(t))
 				}
 			}
 		case slog.SourceKey:
 			if a.Value.Kind() == slog.KindAny {
-				if src, ok := a.Value.Any().(*slog.Source); ok {
-					return slog.String(slog.SourceKey, formatSourceShort(src))
+				if s, ok := a.Value.Any().(*slog.Source); ok {
+					if s.File == "" {
+						return slog.Attr{}
+					}
+					return slog.String(slog.SourceKey, FormatSourceShort(s))
 				}
 			}
 		}
@@ -41,11 +47,13 @@ var Default = New(os.Stderr, &HandlerOptions{
 // SetLevel sets the Default handler's level to l.
 func SetLevel(l slog.Level) { levelVar.Set(l) }
 
-func formatTimeShort(t time.Time) string {
+// FormatTimeShort formats t to format "01/02 15:04:05.000".
+func FormatTimeShort(t time.Time) string {
 	return t.Format("01/02 15:04:05.000")
 }
 
-func formatSourceShort(s *slog.Source) string {
+// FormatSourceShort formats source in a short format.
+func FormatSourceShort(s *slog.Source) string {
 	// nb. To make sure we trim the path correctly on Windows too,
 	// we counter-intuitively need to use '/' and *not* os.PathSeparator here,
 	// because the path given originates from Go stdlib, specifically
