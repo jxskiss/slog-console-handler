@@ -211,8 +211,9 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 	switch k {
 	case slog.TimeKey:
 		if len(r.Time) == 0 {
-			if value[0] == '"' {
-				value = value[1 : len(value)-1]
+			if len(value) > 2 && value[0] == '"' {
+				s, _ := strconv.Unquote(b2s(value))
+				value = s2b(s)
 			}
 			r.Time = value
 			return
@@ -230,7 +231,8 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 	case slog.MessageKey:
 		if len(r.Message) == 0 {
 			if len(value) > 2 && value[0] == '"' {
-				value = value[1 : len(value)-1]
+				s, _ := strconv.Unquote(b2s(value))
+				value = s2b(s)
 			}
 			r.Message = value
 			return
@@ -275,7 +277,10 @@ func addWithColor(b []byte, s []byte, color terminal.Color) []byte {
 
 func formatStacktrace(b []byte, st []byte) []byte {
 	st = bytes.TrimSpace(st)
-	s, _ := strconv.Unquote(b2s(st))
+	s := b2s(st)
+	if len(st) > 2 && st[0] == '"' {
+		s, _ = strconv.Unquote(s)
+	}
 	b = append(b, '\n', '\t', '\t')
 	i, n := 0, len(s)
 	for j, x := range s {
@@ -293,4 +298,8 @@ func formatStacktrace(b []byte, st []byte) []byte {
 
 func b2s(b []byte) string {
 	return unsafe.String(unsafe.SliceData(b), len(b))
+}
+
+func s2b(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
