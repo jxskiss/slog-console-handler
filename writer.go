@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/jxskiss/slog-console-handler/internal/terminal"
@@ -14,6 +15,9 @@ import (
 
 var (
 	byteNewline = []byte("\\n")
+	emptyStr    = []byte(`""`)
+	equalSpace  = []byte("= ")
+	newlineTab2 = "\n\t\t"
 	sourceKey   = []byte("source")
 )
 
@@ -26,7 +30,6 @@ type consoleWriter struct {
 	color  bool
 
 	buf    []byte
-	keyBuf []byte
 	record bufRecord
 }
 
@@ -50,33 +53,39 @@ func (w *consoleWriter) Write(p []byte) (n int, err error) {
 
 func (w *consoleWriter) resetBuf() {
 	w.buf = w.buf[:0]
-	w.keyBuf = w.keyBuf[:0]
 	w.record = bufRecord{
-		Errors: w.record.Errors[:0],
-		Fields: w.record.Fields[:0],
+		Stacktrace: w.record.Stacktrace[:0],
+		Errors:     w.record.Errors[:0],
+		Fields:     w.record.Fields[:0],
 	}
 }
 
 func (w *consoleWriter) formatNoColor() {
 	buf := w.buf
-	buf = addToBuf(buf, nil, w.record.Time)
-	buf = addToBuf(buf, nil, w.record.Level)
+	buf = addKeyValue(buf, nil, w.record.Time)
+	buf = addKeyValue(buf, nil, w.record.Level)
 	if len(w.record.Level) < 5 {
 		buf = append(buf, ' ')
 	}
-	buf = addToBuf(buf, nil, w.record.Message)
-	buf = append(buf, ' ', '\t')
+	buf = append(buf, ' ', ' ')
+	buf = appendUnquote(buf, b2s(w.record.Message), "\n")
+	if bytes.Contains(w.record.Message, byteNewline) {
+		buf = append(buf, '\n', '\t')
+	} else {
+		buf = append(buf, ' ', '\t')
+	}
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		buf = addToBuf(buf, w.record.Errors[i], w.record.Errors[i+1])
+		buf = addKeyValue(buf, w.record.Errors[i], w.record.Errors[i+1])
 	}
 	for i := 0; i < len(w.record.Fields); i += 2 {
-		buf = addToBuf(buf, w.record.Fields[i], w.record.Fields[i+1])
+		buf = addKeyValue(buf, w.record.Fields[i], w.record.Fields[i+1])
 	}
 	for i := 0; i < len(w.record.Stacktrace); i += 2 {
 		buf = append(buf, '\n', '\t')
 		buf = append(buf, w.record.Stacktrace[i]...)
-		buf = append(buf, '=', ' ')
-		buf = formatStacktrace(buf, w.record.Stacktrace[i+1])
+		buf = append(buf, equalSpace...)
+		buf = append(buf, newlineTab2...)
+		buf = appendUnquote(buf, b2s(w.record.Stacktrace[i+1]), newlineTab2)
 	}
 	w.buf = buf
 }
@@ -94,37 +103,34 @@ func (w *consoleWriter) formatColorized() {
 	case strings.HasPrefix(level, "ERROR"):
 		color = terminal.Red
 	}
-	buf, buf1 := w.buf, w.keyBuf
-	buf = addToBuf(buf, nil, w.record.Time)
-	buf = addWithColor(buf, w.record.Level, color)
+	buf := w.buf
+	buf = addKeyValue(buf, nil, w.record.Time)
+	buf = addWithColor(buf, color, w.record.Level)
 	if len(w.record.Level) < 5 {
 		buf = append(buf, ' ')
 	}
-	buf = addToBuf(buf, nil, w.record.Message)
-	buf = append(buf, ' ', '\t')
+	buf = append(buf, ' ', ' ')
+	buf = appendUnquote(buf, b2s(w.record.Message), "\n")
+	if bytes.Contains(w.record.Message, byteNewline) {
+		buf = append(buf, '\n', '\t')
+	} else {
+		buf = append(buf, ' ', '\t')
+	}
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		buf1 = buf1[:0]
-		buf1 = append(buf1, w.record.Errors[i]...)
-		buf1 = append(buf1, '=', ' ')
-		buf = addWithColor(buf, buf1, color)
+		buf = addWithColor(buf, color, w.record.Errors[i], equalSpace)
 		buf = terminal.Red.Append(buf, w.record.Errors[i+1])
 	}
 	for i := 0; i < len(w.record.Fields); i += 2 {
-		buf1 = buf1[:0]
-		buf1 = append(buf1, w.record.Fields[i]...)
-		buf1 = append(buf1, '=', ' ')
-		buf = addWithColor(buf, buf1, color)
+		buf = addWithColor(buf, color, w.record.Fields[i], equalSpace)
 		buf = append(buf, w.record.Fields[i+1]...)
 	}
 	for i := 0; i < len(w.record.Stacktrace); i += 2 {
 		buf = append(buf, '\n', '\t')
-		buf1 = buf1[:0]
-		buf1 = append(buf1, w.record.Stacktrace[i]...)
-		buf1 = append(buf1, '=', ' ')
-		buf = addWithColor(buf, buf1, color)
-		buf = formatStacktrace(buf, w.record.Stacktrace[i+1])
+		buf = addWithColor(buf, color, w.record.Stacktrace[i], equalSpace)
+		buf = append(buf, newlineTab2...)
+		buf = appendUnquote(buf, b2s(w.record.Stacktrace[i+1]), newlineTab2)
 	}
-	w.buf, w.keyBuf = buf, buf1
+	w.buf = buf
 }
 
 type bufRecord struct {
@@ -172,8 +178,6 @@ func (r *bufRecord) getKey() (key []byte) {
 	return key
 }
 
-var emptyStr = []byte(`""`)
-
 func (r *bufRecord) getValue() (value []byte) {
 	line := r.line
 	if len(line) == 0 {
@@ -199,7 +203,7 @@ func (r *bufRecord) getValue() (value []byte) {
 		value = line[:endIdx+1]
 		line = line[endIdx+1:]
 	}
-	if len(line) > 0 && line[0] == ' ' {
+	for len(line) > 0 && line[0] == ' ' {
 		line = line[1:]
 	}
 	r.line = line
@@ -212,8 +216,7 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 	case slog.TimeKey:
 		if len(r.Time) == 0 {
 			if len(value) > 2 && value[0] == '"' {
-				s, _ := strconv.Unquote(b2s(value))
-				value = s2b(s)
+				value = value[1 : len(value)-1]
 			}
 			r.Time = value
 			return
@@ -230,10 +233,6 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 		}
 	case slog.MessageKey:
 		if len(r.Message) == 0 {
-			if len(value) > 2 && value[0] == '"' {
-				s, _ := strconv.Unquote(b2s(value))
-				value = s2b(s)
-			}
 			r.Message = value
 			return
 		}
@@ -249,7 +248,7 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 	}
 }
 
-func addToBuf[T string | []byte](b []byte, k, v T) []byte {
+func addKeyValue[T string | []byte](b []byte, k, v T) []byte {
 	if len(k) == 0 && len(v) == 0 {
 		return b
 	}
@@ -258,42 +257,59 @@ func addToBuf[T string | []byte](b []byte, k, v T) []byte {
 	}
 	if len(k) > 0 {
 		b = append(b, k...)
-		b = append(b, '=', ' ')
+		b = append(b, equalSpace...)
 	}
 	b = append(b, v...)
 	return b
 }
 
-func addWithColor(b []byte, s []byte, color terminal.Color) []byte {
-	if len(s) == 0 {
+func addWithColor(b []byte, color terminal.Color, ss ...[]byte) []byte {
+	if len(ss) == 0 {
 		return b
 	}
 	if len(b) > 0 && b[len(b)-1] != '\t' {
 		b = append(b, ' ', ' ')
 	}
-	b = color.Append(b, s)
+	b = color.Append(b, ss...)
 	return b
 }
 
-func formatStacktrace(b []byte, st []byte) []byte {
-	st = bytes.TrimSpace(st)
-	s := b2s(st)
-	if len(st) > 2 && st[0] == '"' {
-		s, _ = strconv.Unquote(s)
+func appendUnquote(b []byte, s string, newlineRepl string) []byte {
+	const quote = '"'
+	if s == b2s(emptyStr) {
+		return append(b, emptyStr...)
 	}
-	b = append(b, '\n', '\t', '\t')
-	i, n := 0, len(s)
-	for j, x := range s {
-		if x != '\n' && j != n-1 {
-			continue
+	if s[0] != quote || s[len(s)-1] != quote {
+		return append(b, s...)
+	}
+	s = s[1 : len(s)-1]
+	// Handle quoted strings without any escape sequences.
+	if !containsByte(s, '\\') && !containsByte(s, '\n') {
+		return append(b, s...)
+	}
+	// Handle quoted strings with escape sequences.
+	for len(s) > 0 {
+		r, multibyte, rem, err := strconv.UnquoteChar(s, quote)
+		if err != nil {
+			panic("bug: s is not a valid quoted string")
 		}
-		b = append(b, string([]rune(s)[i:j])...)
-		if j < n-1 {
-			b = append(b, '\n', '\t', '\t')
+		if r < utf8.RuneSelf || !multibyte {
+			if r == '\n' {
+				b = append(b, newlineRepl...)
+			} else {
+				b = append(b, byte(r))
+			}
+		} else {
+			b = utf8.AppendRune(b, r)
 		}
-		i = j + 1
+		s = rem
 	}
 	return b
+}
+
+// containsByte reports whether the string containsByte the byte c.
+func containsByte(s string, c byte) bool {
+	return bytes.IndexByte(s2b(s), c) != -1
 }
 
 func b2s(b []byte) string {

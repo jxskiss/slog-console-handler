@@ -28,11 +28,15 @@ func (c Color) Format(s string) string {
 	return s
 }
 
-func (c Color) Append(b []byte, s []byte) []byte {
-	if c == NoColor {
-		return append(b, s...)
+func (c Color) Append(b []byte, ss ...[]byte) []byte {
+	for _, x := range ss {
+		if c == NoColor {
+			b = append(b, x...)
+		} else {
+			b = fmt.Appendf(b, "\x1b[%dm%s\x1b[0m", uint8(c), x)
+		}
 	}
-	return fmt.Appendf(b, "\x1b[%dm%s\x1b[0m", uint8(c), s)
+	return b
 }
 
 func CheckIsTerminal(w io.Writer) bool {
