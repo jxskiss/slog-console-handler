@@ -2,6 +2,7 @@ package slogconsolehandler
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log/slog"
 	"strconv"
@@ -18,7 +19,8 @@ var (
 	emptyStr    = []byte(`""`)
 	equalSpace  = []byte("= ")
 	newlineTab2 = "\n\t\t"
-	sourceKey   = []byte("source")
+	messageKey  = []byte(slog.MessageKey)
+	sourceKey   = []byte(slog.SourceKey)
 )
 
 func checkIsTerminal(w io.Writer) bool {
@@ -29,7 +31,7 @@ type consoleWriter struct {
 	writer io.Writer
 	color  bool
 
-	buf    []byte
+	buf    buffer
 	record bufRecord
 }
 
@@ -40,11 +42,7 @@ func (w *consoleWriter) Write(p []byte) (n int, err error) {
 		w.record.Fields = append(w.record.Fields, sourceKey, w.record.Source)
 		w.record.Source = nil
 	}
-	if !w.color {
-		w.formatNoColor()
-	} else {
-		w.formatColorized()
-	}
+	w.formatBuf()
 	w.buf = bytes.TrimRightFunc(w.buf, unicode.IsSpace)
 	w.buf = append(w.buf, '\n')
 	_, err = w.writer.Write(w.buf)
@@ -60,75 +58,49 @@ func (w *consoleWriter) resetBuf() {
 	}
 }
 
-func (w *consoleWriter) formatNoColor() {
-	buf := w.buf
-	buf = addKeyValue(buf, nil, w.record.Time)
-	buf = addKeyValue(buf, nil, w.record.Level)
-	if len(w.record.Level) < 5 {
-		buf = append(buf, ' ')
-	}
-	buf = append(buf, ' ', ' ')
-	buf = appendUnquote(buf, b2s(w.record.Message), "\n")
-	if bytes.Contains(w.record.Message, byteNewline) {
-		buf = append(buf, '\n', '\t')
-	} else {
-		buf = append(buf, ' ', '\t')
-	}
-	for i := 0; i < len(w.record.Errors); i += 2 {
-		buf = addKeyValue(buf, w.record.Errors[i], w.record.Errors[i+1])
-	}
-	for i := 0; i < len(w.record.Fields); i += 2 {
-		buf = addKeyValue(buf, w.record.Fields[i], w.record.Fields[i+1])
-	}
-	for i := 0; i < len(w.record.Stacktrace); i += 2 {
-		buf = append(buf, '\n', '\t')
-		buf = append(buf, w.record.Stacktrace[i]...)
-		buf = append(buf, equalSpace...)
-		buf = append(buf, newlineTab2...)
-		buf = appendUnquote(buf, b2s(w.record.Stacktrace[i+1]), newlineTab2)
-	}
-	w.buf = buf
-}
-
-func (w *consoleWriter) formatColorized() {
+func (w *consoleWriter) formatBuf() {
 	color := terminal.NoColor
-	level := b2s(w.record.Level)
-	switch {
-	case strings.HasPrefix(level, "DEBUG"):
-		color = terminal.Magenta
-	case strings.HasPrefix(level, "INFO"):
-		color = terminal.Cyan
-	case strings.HasPrefix(level, "WARN"):
-		color = terminal.Yellow
-	case strings.HasPrefix(level, "ERROR"):
-		color = terminal.Red
+	errColor := terminal.NoColor
+	if w.color {
+		level := b2s(w.record.Level)
+		switch {
+		case strings.HasPrefix(level, "DEBUG"):
+			color = terminal.Magenta
+		case strings.HasPrefix(level, "INFO"):
+			color = terminal.Cyan
+		case strings.HasPrefix(level, "WARN"):
+			color = terminal.Yellow
+		case strings.HasPrefix(level, "ERROR"):
+			color = terminal.Red
+		}
+		errColor = terminal.Red
 	}
 	buf := w.buf
-	buf = addKeyValue(buf, nil, w.record.Time)
-	buf = addWithColor(buf, color, w.record.Level)
+	buf.addKeyValue(nil, w.record.Time)
+	buf.addWithColor(color, w.record.Level)
 	if len(w.record.Level) < 5 {
 		buf = append(buf, ' ')
 	}
 	buf = append(buf, ' ', ' ')
-	buf = appendUnquote(buf, b2s(w.record.Message), "\n")
+	buf.appendUnquote(messageKey, w.record.Message, "\n")
 	if bytes.Contains(w.record.Message, byteNewline) {
 		buf = append(buf, '\n', '\t')
 	} else {
 		buf = append(buf, ' ', '\t')
 	}
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		buf = addWithColor(buf, color, w.record.Errors[i], equalSpace)
-		buf = terminal.Red.Append(buf, w.record.Errors[i+1])
+		buf.addWithColor(color, w.record.Errors[i], equalSpace)
+		buf.addWithColor(errColor, w.record.Errors[i+1])
 	}
 	for i := 0; i < len(w.record.Fields); i += 2 {
-		buf = addWithColor(buf, color, w.record.Fields[i], equalSpace)
+		buf.addWithColor(color, w.record.Fields[i], equalSpace)
 		buf = append(buf, w.record.Fields[i+1]...)
 	}
 	for i := 0; i < len(w.record.Stacktrace); i += 2 {
 		buf = append(buf, '\n', '\t')
-		buf = addWithColor(buf, color, w.record.Stacktrace[i], equalSpace)
+		buf.addWithColor(color, w.record.Stacktrace[i], equalSpace)
 		buf = append(buf, newlineTab2...)
-		buf = appendUnquote(buf, b2s(w.record.Stacktrace[i+1]), newlineTab2)
+		buf.appendUnquote(w.record.Stacktrace[i], w.record.Stacktrace[i+1], newlineTab2)
 	}
 	w.buf = buf
 }
@@ -160,7 +132,7 @@ func (r *bufRecord) parse(line []byte) {
 			return
 		}
 		value = r.getValue()
-		r.addKeyValue(key, value)
+		r.addField(key, value)
 	}
 }
 
@@ -210,7 +182,7 @@ func (r *bufRecord) getValue() (value []byte) {
 	return value
 }
 
-func (r *bufRecord) addKeyValue(key, value []byte) {
+func (r *bufRecord) addField(key, value []byte) {
 	k := b2s(key)
 	switch k {
 	case slog.TimeKey:
@@ -248,10 +220,13 @@ func (r *bufRecord) addKeyValue(key, value []byte) {
 	}
 }
 
-func addKeyValue[T string | []byte](b []byte, k, v T) []byte {
+type buffer []byte
+
+func (buf *buffer) addKeyValue(k, v []byte) {
 	if len(k) == 0 && len(v) == 0 {
-		return b
+		return
 	}
+	b := *buf
 	if len(b) > 0 && b[len(b)-1] != '\t' {
 		b = append(b, ' ', ' ')
 	}
@@ -260,38 +235,50 @@ func addKeyValue[T string | []byte](b []byte, k, v T) []byte {
 		b = append(b, equalSpace...)
 	}
 	b = append(b, v...)
-	return b
+	*buf = b
 }
 
-func addWithColor(b []byte, color terminal.Color, ss ...[]byte) []byte {
+func (buf *buffer) addWithColor(color terminal.Color, ss ...[]byte) {
 	if len(ss) == 0 {
-		return b
+		return
 	}
+	b := *buf
 	if len(b) > 0 && b[len(b)-1] != '\t' {
 		b = append(b, ' ', ' ')
 	}
 	b = color.Append(b, ss...)
-	return b
+	*buf = b
 }
 
-func appendUnquote(b []byte, s string, newlineRepl string) []byte {
-	const quote = '"'
-	if s == b2s(emptyStr) {
-		return append(b, emptyStr...)
+func (buf *buffer) appendUnquote(k, v []byte, newlineRepl string) {
+	b := *buf
+	defer func() { *buf = b }()
+	if bytes.Equal(v, emptyStr) {
+		b = append(b, emptyStr...)
+		return
 	}
+	const quote = '"'
+	s := b2s(v)
 	if s[0] != quote || s[len(s)-1] != quote {
-		return append(b, s...)
+		b = append(b, s...)
+		return
 	}
 	s = s[1 : len(s)-1]
 	// Handle quoted strings without any escape sequences.
 	if !containsByte(s, '\\') && !containsByte(s, '\n') {
-		return append(b, s...)
+		b = append(b, s...)
+		return
 	}
 	// Handle quoted strings with escape sequences.
 	for len(s) > 0 {
 		r, multibyte, rem, err := strconv.UnquoteChar(s, quote)
 		if err != nil {
-			panic("bug: s is not a valid quoted string")
+			bugMsg := fmt.Sprintf("!!![slog-console-handler] bug: value of field %s is not a valid quoted string", k)
+			if len(b) > 0 && b[len(b)-1] != ' ' {
+				b = append(b, ' ')
+			}
+			b = append(b, bugMsg...)
+			return
 		}
 		if r < utf8.RuneSelf || !multibyte {
 			if r == '\n' {
@@ -304,7 +291,6 @@ func appendUnquote(b []byte, s string, newlineRepl string) []byte {
 		}
 		s = rem
 	}
-	return b
 }
 
 // containsByte reports whether the string containsByte the byte c.

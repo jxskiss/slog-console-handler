@@ -29,12 +29,14 @@ func (c Color) Format(s string) string {
 }
 
 func (c Color) Append(b []byte, ss ...[]byte) []byte {
-	for _, x := range ss {
-		if c == NoColor {
+	if c == NoColor {
+		for _, x := range ss {
 			b = append(b, x...)
-		} else {
-			b = fmt.Appendf(b, "\x1b[%dm%s\x1b[0m", uint8(c), x)
 		}
+		return b
+	}
+	for _, x := range ss {
+		b = fmt.Appendf(b, "\x1b[%dm%s\x1b[0m", uint8(c), x)
 	}
 	return b
 }
