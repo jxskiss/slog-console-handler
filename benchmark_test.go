@@ -8,7 +8,12 @@ import (
 	"github.com/jxskiss/slog-console-handler/examples/dolog"
 )
 
-func BenchmarkStdSlog(b *testing.B) {
+func TestConsoleHandler(t *testing.T) {
+	slog.SetDefault(slog.New(Default))
+	dolog.DoLogging()
+}
+
+func BenchmarkSlogTextHandler(b *testing.B) {
 	w := io.Discard
 	slog.SetDefault(slog.New(slog.NewTextHandler(w, nil)))
 	b.ReportAllocs()

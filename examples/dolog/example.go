@@ -9,9 +9,9 @@ import (
 )
 
 func DoLogging() {
-	log.Printf("log message without level prefix")
-	log.Printf("Debug: log debug message")
-	log.Println("[Info] log info message")
+	log.Printf("std log message without level prefix")
+	log.Printf("Debug: std log debug message")
+	log.Println("[Warn] std log warn message")
 
 	ctx := context.Background()
 	err := errors.New("test error")
@@ -51,6 +51,7 @@ func DoLogging() {
 	slog.Warn("Slow request", "method", "POST", "path", "/posts", "pid", 37556, "resp_time", 532)
 	slog.Info("Access", "method", "GET", "path", "/users", "pid", 37556, "resp_time", 10)
 	slog.Error("Database connection lost", "error", "connection reset by peer", "database", "myapp", "pid", 37556)
+	slog.Info("log message with newline\nthe second line log message")
 
 	logger := slog.With("_tag", "subLogger")
 	logger.Info("A group of walrus emerges from the ocean", "animal", "walrus", "size", 10)

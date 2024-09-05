@@ -42,7 +42,7 @@ func (w *consoleWriter) Write(p []byte) (n int, err error) {
 		w.record.Fields = append(w.record.Fields, sourceKey, w.record.Source)
 		w.record.Source = nil
 	}
-	w.formatBuf()
+	w.formatRecord()
 	w.buf = bytes.TrimRightFunc(w.buf, unicode.IsSpace)
 	w.buf = append(w.buf, '\n')
 	_, err = w.writer.Write(w.buf)
@@ -58,7 +58,7 @@ func (w *consoleWriter) resetBuf() {
 	}
 }
 
-func (w *consoleWriter) formatBuf() {
+func (w *consoleWriter) formatRecord() {
 	color := terminal.NoColor
 	errColor := terminal.NoColor
 	if w.color {
@@ -75,39 +75,40 @@ func (w *consoleWriter) formatBuf() {
 		}
 		errColor = terminal.Red
 	}
+	record := w.record
 	buf := w.buf
-	buf = append(buf, w.record.Time...)
+	buf = append(buf, record.Time...)
 	buf = append(buf, ' ', ' ')
-	buf = color.Append(buf, w.record.Level)
-	if len(w.record.Level) < 5 {
+	buf = color.Append(buf, record.Level)
+	if len(record.Level) < 5 {
 		buf = append(buf, ' ')
 	}
 	buf = append(buf, ' ', ' ')
-	buf.appendUnquote(messageKey, w.record.Message, "\n")
-	if bytes.Contains(w.record.Message, byteNewline) {
+	buf.appendUnquote(messageKey, record.Message, "\n")
+	if bytes.Contains(record.Message, byteNewline) {
 		buf = append(buf, '\n', '\t')
 	} else {
 		buf = append(buf, ' ', '\t')
 	}
-	for i := 0; i < len(w.record.Errors); i += 2 {
+	for i := 0; i < len(record.Errors); i += 2 {
 		if buf[len(buf)-1] != '\t' {
 			buf = append(buf, ' ', ' ')
 		}
-		buf = color.Append(buf, w.record.Errors[i], equalSpace)
-		buf = errColor.Append(buf, w.record.Errors[i+1])
+		buf = color.Append(buf, record.Errors[i], equalSpace)
+		buf = errColor.Append(buf, record.Errors[i+1])
 	}
-	for i := 0; i < len(w.record.Fields); i += 2 {
+	for i := 0; i < len(record.Fields); i += 2 {
 		if buf[len(buf)-1] != '\t' {
 			buf = append(buf, ' ', ' ')
 		}
-		buf = color.Append(buf, w.record.Fields[i], equalSpace)
-		buf = append(buf, w.record.Fields[i+1]...)
+		buf = color.Append(buf, record.Fields[i], equalSpace)
+		buf = append(buf, record.Fields[i+1]...)
 	}
-	for i := 0; i < len(w.record.Stacktrace); i += 2 {
+	for i := 0; i < len(record.Stacktrace); i += 2 {
 		buf = append(buf, '\n', '\t')
-		buf = color.Append(buf, w.record.Stacktrace[i], equalSpace)
+		buf = color.Append(buf, record.Stacktrace[i], equalSpace)
 		buf = append(buf, newlineTab2...)
-		buf.appendUnquote(w.record.Stacktrace[i], w.record.Stacktrace[i+1], newlineTab2)
+		buf.appendUnquote(record.Stacktrace[i], record.Stacktrace[i+1], newlineTab2)
 	}
 	w.buf = buf
 }
@@ -125,13 +126,7 @@ type bufRecord struct {
 }
 
 func (r *bufRecord) parse(line []byte) {
-	line = bytes.TrimRight(line, "\n")
-	if len(line) == 0 {
-		return
-	}
-
-	r.line = line
-
+	r.line = bytes.TrimSpace(line)
 	var key, value []byte
 	for len(r.line) > 0 {
 		key = r.getKey()
