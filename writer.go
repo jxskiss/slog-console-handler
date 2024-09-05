@@ -76,8 +76,9 @@ func (w *consoleWriter) formatBuf() {
 		errColor = terminal.Red
 	}
 	buf := w.buf
-	buf.addKeyValue(nil, w.record.Time)
-	buf.addWithColor(color, w.record.Level)
+	buf = append(buf, w.record.Time...)
+	buf = append(buf, ' ', ' ')
+	buf = color.Append(buf, w.record.Level)
 	if len(w.record.Level) < 5 {
 		buf = append(buf, ' ')
 	}
@@ -89,16 +90,22 @@ func (w *consoleWriter) formatBuf() {
 		buf = append(buf, ' ', '\t')
 	}
 	for i := 0; i < len(w.record.Errors); i += 2 {
-		buf.addWithColor(color, w.record.Errors[i], equalSpace)
-		buf.addWithColor(errColor, w.record.Errors[i+1])
+		if buf[len(buf)-1] != '\t' {
+			buf = append(buf, ' ', ' ')
+		}
+		buf = color.Append(buf, w.record.Errors[i], equalSpace)
+		buf = errColor.Append(buf, w.record.Errors[i+1])
 	}
 	for i := 0; i < len(w.record.Fields); i += 2 {
-		buf.addWithColor(color, w.record.Fields[i], equalSpace)
+		if buf[len(buf)-1] != '\t' {
+			buf = append(buf, ' ', ' ')
+		}
+		buf = color.Append(buf, w.record.Fields[i], equalSpace)
 		buf = append(buf, w.record.Fields[i+1]...)
 	}
 	for i := 0; i < len(w.record.Stacktrace); i += 2 {
 		buf = append(buf, '\n', '\t')
-		buf.addWithColor(color, w.record.Stacktrace[i], equalSpace)
+		buf = color.Append(buf, w.record.Stacktrace[i], equalSpace)
 		buf = append(buf, newlineTab2...)
 		buf.appendUnquote(w.record.Stacktrace[i], w.record.Stacktrace[i+1], newlineTab2)
 	}
@@ -221,34 +228,6 @@ func (r *bufRecord) addField(key, value []byte) {
 }
 
 type buffer []byte
-
-func (buf *buffer) addKeyValue(k, v []byte) {
-	if len(k) == 0 && len(v) == 0 {
-		return
-	}
-	b := *buf
-	if len(b) > 0 && b[len(b)-1] != '\t' {
-		b = append(b, ' ', ' ')
-	}
-	if len(k) > 0 {
-		b = append(b, k...)
-		b = append(b, equalSpace...)
-	}
-	b = append(b, v...)
-	*buf = b
-}
-
-func (buf *buffer) addWithColor(color terminal.Color, ss ...[]byte) {
-	if len(ss) == 0 {
-		return
-	}
-	b := *buf
-	if len(b) > 0 && b[len(b)-1] != '\t' {
-		b = append(b, ' ', ' ')
-	}
-	b = color.Append(b, ss...)
-	*buf = b
-}
 
 func (buf *buffer) appendUnquote(k, v []byte, newlineRepl string) {
 	b := *buf
