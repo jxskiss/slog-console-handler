@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"log/slog"
 
 	"github.com/jxskiss/slog-console-handler"
@@ -8,6 +9,7 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	slog.SetDefault(slog.New(slogconsolehandler.Default))
 	dolog.DoLogging()
 }

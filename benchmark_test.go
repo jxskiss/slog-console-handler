@@ -10,6 +10,7 @@ import (
 
 func TestConsoleHandler(t *testing.T) {
 	slog.SetDefault(slog.New(Default))
+	SetLevel(slog.LevelDebug)
 	dolog.DoLogging()
 }
 
